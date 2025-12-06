@@ -1,0 +1,10 @@
+services:
+  hackathon-bot:
+    build: .
+    container_name: reachy-soul
+    environment:
+      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
+    volumes:
+      - ./:/app
+    stdin_open: true
+    tty: true
