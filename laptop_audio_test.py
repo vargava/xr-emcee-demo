@@ -102,29 +102,32 @@ class LaptopAudioClient:
                     
                     print("🔊 ElevenLabs audio finished")
                     
+                    # Short buffer to let sound dissipate
+                    time.sleep(1)
+                    
                 except ImportError:
                     print("⚠️  pygame not installed, using fallback TTS")
                     # Fallback to pyttsx3
                     self.tts.say(text)
                     self.tts.runAndWait()
+                    # Need longer wait for pyttsx3
+                    word_count = len(text.split())
+                    time.sleep(max(3, (word_count / 2.5) + 2))
                 except Exception as e:
                     print(f"⚠️  Audio playback error: {e}, using fallback TTS")
                     self.tts.say(text)
                     self.tts.runAndWait()
+                    # Need longer wait for pyttsx3
+                    word_count = len(text.split())
+                    time.sleep(max(3, (word_count / 2.5) + 2))
             else:
                 # No audio from server, use local TTS
                 print("ℹ️  No audio from server, using local TTS")
                 self.tts.say(text)
                 self.tts.runAndWait()
-            
-            # Calculate approximate speaking time
-            word_count = len(text.split())
-            estimated_speech_time = (word_count / 2.5) + 1
-            
-            # Wait for sound to dissipate
-            total_wait = max(3, estimated_speech_time + 2)
-            print(f"⏸️  Waiting {total_wait:.0f}s for audio to clear...")
-            time.sleep(total_wait)
+                # Need longer wait for pyttsx3
+                word_count = len(text.split())
+                time.sleep(max(3, (word_count / 2.5) + 2))
             
             # Done speaking
             self.bot_is_speaking = False
