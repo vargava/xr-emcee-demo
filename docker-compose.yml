@@ -4,7 +4,17 @@ services:
     container_name: reachy-soul
     environment:
       - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
+      - REACHY_SIMULATION_MODE=${REACHY_SIMULATION_MODE:-true}
+      - REACHY_HOST=${REACHY_HOST:-localhost}
+      - API_HOST=0.0.0.0
+      - API_PORT=5000
+      # Optional: ElevenLabs for high-quality TTS
+      # - ELEVENLABS_API_KEY=${ELEVENLABS_API_KEY}
+      # - USE_ELEVENLABS=true
+    ports:
+      - "5001:5000"  # HTTP API and WebSocket
     volumes:
       - ./:/app
     stdin_open: true
     tty: true
+    network_mode: bridge
