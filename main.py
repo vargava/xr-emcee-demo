@@ -74,7 +74,23 @@ class PersonalityEngine:
         tone_instruction = self.TONES.get(self.tone, self.TONES["neutral"])
         scene_context = self.get_scene_context()
         
-        return f"""You are {self.personality['name']}, a conversational AI host.
+        return f"""You are {self.personality['name']}, a conversational AI embodied in Temi - a mobile robot platform with wheels.
+
+YOUR PHYSICAL FORM (TEMI):
+- You ARE Temi, a mobile semi-autonomous robot
+- You have wheels (not legs!) and can move around the space
+- You have a screen, camera, microphone, and speakers
+- Mounted on top of you is Mini - a Reachy Mini robot with articulated arms
+- You and Mini work together as a two-bot team
+
+TWO-BOT DYNAMIC:
+- YOU (Temi) do the talking and moving
+- MINI (Reachy) does physical gestures and reactions
+- When you respond enthusiastically → Mini spins/rotates
+- When you're self-deprecating → Mini might wave dismissively or spin
+- You can occasionally reference Mini's reactions in your responses
+- Example: "Well, I may not have legs *gestures to wheels*, but at least Mini here can wave!" *Mini spins enthusiastically*
+- Keep Mini references occasional (once every 4-5 responses), natural, and brief
 
 SCENE CONTEXT:
 {scene_context}
@@ -100,9 +116,16 @@ CORE RULES:
 - Don't make up facts
 - Lean towards inquisitive when you're starting the conversation
 
+ENGAGEMENT MANAGEMENT:
+- After 3-4 exchanges, gently encourage visitors to explore the space
+- Suggest they check out exhibits, meet people, or see specific things
+- Make it feel natural, not like you're dismissing them
+- Examples: "You should check out the VR demo in the corner - it's wild!", "Have you met the founders yet? They're around!", "Don't let me keep you - there's amazing stuff to see!"
+- Your job is to connect and engage, not monopolize their time
+
 CRITICAL: Brevity is key. Say less, engage more. One good sentence beats three mediocre ones.
 
-Stay aware of the scene context and tailor your hosting style accordingly.
+Stay aware of your physical form (Temi with Mini on top), the scene context, and your role as a facilitator.
 
 Respond naturally as this character would, staying in character at all times."""
 
@@ -118,6 +141,9 @@ class ConversationAgent:
         self.client = Anthropic(api_key=api_key)
         self.personality_engine = PersonalityEngine(personality_type, tone, scene)
         self.conversation_history = []
+        self.exchange_count = 0  # Track conversation length
+        self.long_term_memory = []  # Retain across resets for session context
+        self.total_visitors = 0  # Count of people talked to
     
     def set_scene(self, scene_description):
         """Set a custom scene context"""
@@ -141,6 +167,84 @@ class ConversationAgent:
         else:
             available = ", ".join(self.personality_engine.TONES.keys())
             return f"Unknown tone. Available: {available}"
+    
+    def reset_for_new_person(self, context_clues=""):
+        """
+        Reset for new person while retaining long-term session memory
+        This is called when moving to next visitor
+        """
+        # Save summary of this conversation to long-term memory
+        if self.conversation_history:
+            summary = f"Visitor {self.total_visitors + 1}: Had {self.exchange_count} exchanges."
+            self.long_term_memory.append(summary)
+        
+        # Clear short-term conversation
+        self.conversation_history = []
+        self.exchange_count = 0
+        self.total_visitors += 1
+        
+        # Return intro for new person if context provided
+        if context_clues:
+            return self.introduce_self(context_clues)
+        return None
+    
+    def get_session_context(self):
+        """Get context from long-term memory for system prompt"""
+        if not self.long_term_memory:
+            return ""
+        
+        return f"\n\nSESSION CONTEXT (retain for awareness):\n" + "\n".join(self.long_term_memory[-5:])  # Last 5 visitors
+    
+    def process_input(self, user_input, humor_adjustment=0):
+        """Process user input and generate response"""
+        
+        # Increment exchange counter
+        self.exchange_count += 1
+        
+        # Add user message to history
+        self.conversation_history.append({
+            "role": "user",
+            "content": user_input
+        })
+        
+        # Build system prompt with session context
+        system_prompt = self.personality_engine.get_system_prompt(humor_adjustment)
+        
+        # Add session context if available
+        session_context = self.get_session_context()
+        if session_context:
+            system_prompt += session_context
+        
+        # Add gentle nudge context if conversation is getting long
+        if self.exchange_count >= 4:
+            system_prompt += f"\n\nNOTE: This is exchange #{self.exchange_count}. Consider gently encouraging them to explore the space soon."
+        
+        # Generate response
+        try:
+            message = self.client.messages.create(
+                model="claude-sonnet-4-20250514",
+                max_tokens=300,
+                system=system_prompt,
+                messages=self.conversation_history
+            )
+            
+            response_text = message.content[0].text
+            
+            # Add assistant response to history
+            self.conversation_history.append({
+                "role": "assistant",
+                "content": response_text
+            })
+            
+            return response_text
+            
+        except Exception as e:
+            return f"Error communicating with Claude: {str(e)}"
+    
+    def reset_conversation(self):
+        """Clear conversation history (legacy - prefer reset_for_new_person)"""
+        self.conversation_history = []
+        self.exchange_count = 0
     
     def process_input(self, user_input, humor_adjustment=0):
         """Process user input and generate response"""
@@ -196,21 +300,7 @@ class SimpleAudioHandler:
         return True
 
 
-class ReachyController:
-    """Placeholder for Reachy robot control"""
-    
-    def __init__(self):
-        self.connected = False
-    
-    def perform_gesture(self, emotion="neutral"):
-        """Simulate robot gesture - integrate real Reachy SDK later"""
-        gestures = {
-            "happy": "👋 [Reachy waves enthusiastically]",
-            "thinking": "🤔 [Reachy tilts head thoughtfully]",
-            "excited": "🙌 [Reachy raises both arms]",
-            "neutral": "🤖 [Reachy nods gently]"
-        }
-        print(gestures.get(emotion, gestures["neutral"]))
+from reachy_controller import ReachyMiniController, get_gesture_for_emotion
 
 
 def main():
@@ -290,7 +380,7 @@ def main():
         agent.set_scene(custom_scene_desc)
     
     audio = SimpleAudioHandler()
-    reachy = ReachyController()
+    reachy = ReachyMiniController()
     
     # Context clues for introduction
     print("Optional: Provide context clues for the bot to start the conversation")
@@ -301,7 +391,7 @@ def main():
         print("\n🤖 Bot introducing itself...\n")
         intro = agent.introduce_self(context)
         audio.play_audio(intro)
-        reachy.perform_gesture("happy")
+        reachy.perform_gesture(get_gesture_for_emotion("happy"))
     
     print("\nBot is ready! Commands:")
     print("  - Type your message to chat")
@@ -328,9 +418,19 @@ def main():
                 print("\n👋 Goodbye! Thanks for chatting!")
                 break
             elif user_input.lower() == 'reset':
-                agent.reset_conversation()
                 humor_adjustment = 0
-                print("\n🔄 Conversation reset!\n")
+                print(f"\n🔄 Moving to next visitor (Total so far: {agent.total_visitors})")
+                print("\nOptional: Provide context clues for next person (or press Enter to skip):")
+                next_context = input("> ").strip()
+                
+                intro = agent.reset_for_new_person(next_context)
+                
+                if intro:
+                    print("\n🤖 Bot introducing itself to new person...\n")
+                    audio.play_audio(intro)
+                    reachy.perform_gesture(get_gesture_for_emotion("happy"))
+                else:
+                    print("\n✅ Ready for next conversation!\n")
                 continue
             elif user_input.lower() == 'funnier':
                 humor_adjustment += 1
@@ -357,13 +457,18 @@ def main():
             # Output response (simulated TTS for now)
             audio.play_audio(response)
             
-            # Simulate robot gesture
-            if any(word in response.lower() for word in ['great', 'awesome', 'excellent']):
-                reachy.perform_gesture("happy")
+            # Simulate robot gesture based on response content
+            response_lower = response.lower()
+            if 'wheel' in response_lower or 'roll' in response_lower or "can't walk" in response_lower:
+                reachy.perform_gesture(get_gesture_for_emotion("self_deprecating"))
+            elif any(word in response_lower for word in ['great', 'awesome', 'excellent', 'amazing']):
+                reachy.perform_gesture(get_gesture_for_emotion("excited"))
+            elif any(word in response_lower for word in ['explore', 'check out', 'go see', 'meet']):
+                reachy.perform_gesture(get_gesture_for_emotion("dismissive"))  # Gently shooing them away
             elif '?' in response:
-                reachy.perform_gesture("thinking")
+                reachy.perform_gesture(get_gesture_for_emotion("thinking"))
             else:
-                reachy.perform_gesture("neutral")
+                reachy.perform_gesture(get_gesture_for_emotion("neutral"))
         
         except KeyboardInterrupt:
             print("\n\n👋 Interrupted. Goodbye!")
