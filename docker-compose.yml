@@ -12,7 +12,7 @@ services:
       # - ELEVENLABS_API_KEY=${ELEVENLABS_API_KEY}
       # - USE_ELEVENLABS=true
     ports:
-      - "5000:5000"  # HTTP API and WebSocket
+      - "5001:5000"  # HTTP API and WebSocket
     volumes:
       - ./:/app
     stdin_open: true
