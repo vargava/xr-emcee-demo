@@ -21,9 +21,20 @@ class LaptopAudioClient:
         self.server_url = server_url
         self.sio = socketio.Client()
         
+        # State management - prevent listening while bot is speaking
+        self.bot_is_speaking = False
+        self.waiting_for_response = False
+        self.last_audio_sent_time = 0
+        self.response_timeout = 15  # seconds
+        
         # Setup speech recognition (mic input)
         self.recognizer = sr.Recognizer()
         self.microphone = sr.Microphone()
+        
+        # Adjust recognition sensitivity
+        self.recognizer.energy_threshold = 6000  # Very high - only capture loud/close speech
+        self.recognizer.dynamic_energy_threshold = False  # Don't auto-adjust
+        self.recognizer.pause_threshold = 1.5  # Longer pause before considering done
         
         # Setup text-to-speech (speaker output)
         self.tts = pyttsx3.init()
@@ -35,7 +46,7 @@ class LaptopAudioClient:
         
         print("🎤 Initializing microphone...")
         with self.microphone as source:
-            self.recognizer.adjust_for_ambient_noise(source, duration=1)
+            self.recognizer.adjust_for_ambient_noise(source, duration=2)
         print("✅ Ready!")
     
     def setup_handlers(self):
@@ -44,27 +55,90 @@ class LaptopAudioClient:
         @self.sio.on('connect')
         def on_connect():
             print(f"✅ Connected to {self.server_url}")
+            # Reset state on reconnect
+            self.bot_is_speaking = False
+            self.waiting_for_response = False
         
         @self.sio.on('disconnect')
         def on_disconnect():
             print("🔌 Disconnected from server")
+            # Clear waiting state
+            self.waiting_for_response = False
+            self.bot_is_speaking = False
         
         @self.sio.on('bot_response')
         def on_bot_response(data):
             text = data.get('text', '')
+            audio_b64 = data.get('audio')  # ElevenLabs audio in base64
+            
             print(f"\n🤖 Bot: {text}\n")
             
-            # Speak the response
-            self.tts.say(text)
-            self.tts.runAndWait()
+            # Set speaking flag BEFORE speaking
+            self.bot_is_speaking = True
+            self.waiting_for_response = False
+            
+            # Play the audio
+            if audio_b64:
+                # We have ElevenLabs audio - play it!
+                try:
+                    import pygame
+                    from io import BytesIO
+                    
+                    # Decode base64 audio
+                    audio_bytes = base64.b64decode(audio_b64)
+                    
+                    # Initialize pygame mixer if not already
+                    if not pygame.mixer.get_init():
+                        pygame.mixer.init()
+                    
+                    # Load and play audio
+                    audio_file = BytesIO(audio_bytes)
+                    pygame.mixer.music.load(audio_file)
+                    pygame.mixer.music.play()
+                    
+                    # Wait for audio to finish
+                    while pygame.mixer.music.get_busy():
+                        time.sleep(0.1)
+                    
+                    print("🔊 ElevenLabs audio finished")
+                    
+                except ImportError:
+                    print("⚠️  pygame not installed, using fallback TTS")
+                    # Fallback to pyttsx3
+                    self.tts.say(text)
+                    self.tts.runAndWait()
+                except Exception as e:
+                    print(f"⚠️  Audio playback error: {e}, using fallback TTS")
+                    self.tts.say(text)
+                    self.tts.runAndWait()
+            else:
+                # No audio from server, use local TTS
+                print("ℹ️  No audio from server, using local TTS")
+                self.tts.say(text)
+                self.tts.runAndWait()
+            
+            # Calculate approximate speaking time
+            word_count = len(text.split())
+            estimated_speech_time = (word_count / 2.5) + 1
+            
+            # Wait for sound to dissipate
+            total_wait = max(3, estimated_speech_time + 2)
+            print(f"⏸️  Waiting {total_wait:.0f}s for audio to clear...")
+            time.sleep(total_wait)
+            
+            # Done speaking
+            self.bot_is_speaking = False
+            print("✅ Ready to listen again...")
         
         @self.sio.on('transcription')
         def on_transcription(data):
-            print(f"📝 Heard: {data['text']}")
+            print(f"📝 Transcribed: {data['text']}")
+            self.waiting_for_response = True
         
         @self.sio.on('error')
         def on_error(data):
             print(f"❌ Error: {data.get('message', 'Unknown error')}")
+            self.waiting_for_response = False
     
     def connect(self):
         """Connect to the API server"""
@@ -80,12 +154,37 @@ class LaptopAudioClient:
     
     def send_audio(self):
         """Capture audio from mic and send to server"""
+        
+        # Don't listen if bot is currently speaking
+        if self.bot_is_speaking:
+            print("🔇 Bot is speaking, waiting...")
+            time.sleep(0.5)
+            return
+        
+        # Check if we've been waiting too long for a response
+        if self.waiting_for_response:
+            elapsed = time.time() - self.last_audio_sent_time
+            if elapsed > self.response_timeout:
+                print(f"⏱️  Response timeout ({elapsed:.0f}s), resetting...")
+                self.waiting_for_response = False
+            else:
+                print("⏳ Waiting for bot response...")
+                time.sleep(0.5)
+                return
+        
         print("\n🎤 Listening... (speak now)")
         
         try:
             with self.microphone as source:
-                # Listen for speech
-                audio = self.recognizer.listen(source, timeout=10, phrase_time_limit=10)
+                # Listen for speech with timeout
+                audio = self.recognizer.listen(source, timeout=5, phrase_time_limit=10)
+            
+            # Check if we actually captured meaningful audio
+            # If audio is too short, skip it (likely noise or echo)
+            audio_duration = len(audio.frame_data) / (audio.sample_rate * audio.sample_width)
+            if audio_duration < 1.0:  # Less than 1 second - likely echo
+                print("⏭️  Audio too short (echo?), skipping...")
+                return
             
             # Convert to WAV format
             audio_bytes = audio.get_wav_data()
@@ -102,9 +201,12 @@ class LaptopAudioClient:
             })
             
             print("📤 Audio sent to server, waiting for response...")
+            self.waiting_for_response = True
+            self.last_audio_sent_time = time.time()  # Track when we sent it
             
         except sr.WaitTimeoutError:
-            print("⏱️  No speech detected, try again")
+            # No speech detected - this is normal, just continue
+            pass
         except Exception as e:
             print(f"❌ Error capturing audio: {e}")
     
@@ -115,17 +217,19 @@ class LaptopAudioClient:
         print("\n" + "="*60)
         print("🎙️  LAPTOP AUDIO TEST CLIENT")
         print("="*60)
-        print("\nCommands:")
-        print("  - Just speak when prompted")
-        print("  - Press Ctrl+C to quit")
-        print("\n" + "="*60 + "\n")
+        print("\nHow it works:")
+        print("  1. Speak naturally when you see '🎤 Listening...'")
+        print("  2. Wait 1 second of silence after speaking")
+        print("  3. Bot will respond and speak back")
+        print("  4. After bot finishes, you can speak again")
+        print("\nPress Ctrl+C to quit")
+        print("="*60 + "\n")
         
         try:
             while True:
                 self.send_audio()
-                
-                # Small delay to hear response before next recording
-                time.sleep(1)
+                # Short sleep to avoid tight loop
+                time.sleep(0.1)
                 
         except KeyboardInterrupt:
             print("\n\n👋 Stopping...")
