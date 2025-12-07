@@ -10,6 +10,8 @@ import base64
 import speech_recognition as sr
 import pyttsx3
 import time
+import threading
+from pynput import keyboard
 
 # Configuration
 SERVER_URL = "http://localhost:5001"  # Socket.IO uses http:// not ws://
@@ -44,10 +46,118 @@ class LaptopAudioClient:
         # Setup Socket.IO event handlers
         self.setup_handlers()
         
+        # Setup keyboard listener
+        self.keyboard_listener = keyboard.Listener(on_press=self.on_key_press)
+        
         print("🎤 Initializing microphone...")
         with self.microphone as source:
             self.recognizer.adjust_for_ambient_noise(source, duration=2)
         print("✅ Ready!")
+    
+    def on_key_press(self, key):
+        """Handle keyboard shortcuts"""
+        try:
+            # Spacebar - Reset conversation
+            if key == keyboard.Key.space:
+                print("\n⚡ SPACEBAR: Resetting conversation...")
+                self.reset_conversation()
+                return
+            
+            # Up arrow - Make conversation funnier
+            if key == keyboard.Key.up:
+                print("\n⚡ UP ARROW: Making it funnier...")
+                self.change_tone("funnier")
+                return
+            
+            # Right arrow - Switch to pirate
+            if key == keyboard.Key.right:
+                print("\n⚡ RIGHT ARROW: Switching to pirate...")
+                self.change_personality("pirate")
+                return
+                
+        except AttributeError:
+            # Not a special key
+            pass
+    
+    def reset_conversation(self):
+        """Reset for new visitor"""
+        try:
+            # Cancel any pending audio to stop listening
+            self.bot_is_speaking = True
+            self.waiting_for_response = False
+            
+            # Make API call
+            import requests
+            response = requests.post(
+                self.server_url.replace('ws://', 'http://').replace(':5001', ':5001') + '/reset',
+                json={'context_clues': ''},
+                timeout=5
+            )
+            
+            if response.status_code == 200:
+                data = response.json()
+                print(f"✅ Reset complete! Total visitors: {data.get('total_visitors', '?')}")
+                
+                # Play introduction if provided
+                intro = data.get('introduction')
+                if intro:
+                    print(f"🤖 {intro}")
+            else:
+                print(f"❌ Reset failed: {response.text}")
+            
+            # Resume listening
+            time.sleep(1)
+            self.bot_is_speaking = False
+            
+        except Exception as e:
+            print(f"❌ Reset error: {e}")
+            self.bot_is_speaking = False
+    
+    def change_tone(self, tone):
+        """Change conversational tone"""
+        try:
+            self.bot_is_speaking = True
+            
+            import requests
+            response = requests.post(
+                self.server_url.replace('ws://', 'http://').replace(':5001', ':5001') + '/set_personality',
+                json={'tone': tone},
+                timeout=5
+            )
+            
+            if response.status_code == 200:
+                print(f"✅ Tone changed to: {tone}")
+            else:
+                print(f"❌ Tone change failed: {response.text}")
+            
+            self.bot_is_speaking = False
+            
+        except Exception as e:
+            print(f"❌ Tone change error: {e}")
+            self.bot_is_speaking = False
+    
+    def change_personality(self, personality):
+        """Change bot personality"""
+        try:
+            self.bot_is_speaking = True
+            
+            import requests
+            response = requests.post(
+                self.server_url.replace('ws://', 'http://').replace(':5001', ':5001') + '/set_personality',
+                json={'personality': personality},
+                timeout=5
+            )
+            
+            if response.status_code == 200:
+                print(f"✅ Personality changed to: {personality}")
+            else:
+                print(f"❌ Personality change failed: {response.text}")
+            
+            self.bot_is_speaking = False
+            
+        except Exception as e:
+            print(f"❌ Personality change error: {e}")
+            self.bot_is_speaking = False
     
     def setup_handlers(self):
         """Setup Socket.IO event handlers"""
@@ -217,6 +327,9 @@ class LaptopAudioClient:
         """Main loop - continuously listen and respond"""
         self.connect()
         
+        # Start keyboard listener in background
+        self.keyboard_listener.start()
+        
         print("\n" + "="*60)
         print("🎙️  LAPTOP AUDIO TEST CLIENT")
         print("="*60)
@@ -225,6 +338,10 @@ class LaptopAudioClient:
         print("  2. Wait 1 second of silence after speaking")
         print("  3. Bot will respond and speak back")
         print("  4. After bot finishes, you can speak again")
+        print("\n⌨️  Keyboard shortcuts:")
+        print("  SPACEBAR  → Reset conversation (new visitor)")
+        print("  UP ARROW  → Make conversation funnier")
+        print("  RIGHT ARROW → Switch to pirate personality")
         print("\nPress Ctrl+C to quit")
         print("="*60 + "\n")
         
@@ -237,6 +354,7 @@ class LaptopAudioClient:
         except KeyboardInterrupt:
             print("\n\n👋 Stopping...")
         finally:
+            self.keyboard_listener.stop()
             self.sio.disconnect()
 
 

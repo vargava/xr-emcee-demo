@@ -25,7 +25,7 @@ source test_env/bin/activate
 brew install portaudio
 
 # Install Python packages
-pip install websockets pyaudio SpeechRecognition pyttsx3 requests python-socketio pygame
+pip install websockets pyaudio SpeechRecognition pyttsx3 requests python-socketio pygame pynput
 ```
 
 ### 3. Run the test
