@@ -143,7 +143,7 @@ class ConversationAgent:
         self.conversation_history = []
         self.exchange_count = 0  # Track conversation length
         self.long_term_memory = []  # Retain across resets for session context
-        self.total_visitors = 0  # Count of people talked to
+        self.total_visitors = 1  # Count of people talked to
     
     def set_scene(self, scene_description):
         """Set a custom scene context"""
