@@ -82,82 +82,71 @@ class LaptopAudioClient:
     def reset_conversation(self):
         """Reset for new visitor"""
         try:
-            # Cancel any pending audio to stop listening
+            # Pause audio immediately
             self.bot_is_speaking = True
-            self.waiting_for_response = False
+            self.waiting_for_response = False  # Clear waiting flag!
+            
+            time.sleep(0.3)  # Let any pending audio clear
             
             # Make API call
             import requests
             response = requests.post(
-                self.server_url.replace('ws://', 'http://').replace(':5001', ':5001') + '/reset',
+                self.server_url + '/reset',
                 json={'context_clues': ''},
                 timeout=5
             )
             
             if response.status_code == 200:
                 data = response.json()
-                print(f"✅ Reset complete! Total visitors: {data.get('total_visitors', '?')}")
-                
-                # Play introduction if provided
-                intro = data.get('introduction')
-                if intro:
-                    print(f"🤖 {intro}")
+                print(f"✅ Reset! Visitor #{data.get('total_visitors', '?')}\n")
             else:
                 print(f"❌ Reset failed: {response.text}")
             
-            # Resume listening
-            time.sleep(1)
+            # Resume listening - clear ALL flags
+            time.sleep(0.5)
             self.bot_is_speaking = False
+            self.waiting_for_response = False  # Ensure it's clear!
             
         except Exception as e:
             print(f"❌ Reset error: {e}")
             self.bot_is_speaking = False
+            self.waiting_for_response = False
     
     def change_tone(self, tone):
         """Change conversational tone"""
         try:
-            self.bot_is_speaking = True
-            
             import requests
             response = requests.post(
-                self.server_url.replace('ws://', 'http://').replace(':5001', ':5001') + '/set_personality',
+                self.server_url + '/set_personality',
                 json={'tone': tone},
                 timeout=5
             )
             
             if response.status_code == 200:
-                print(f"✅ Tone changed to: {tone}")
+                print(f"✅ Tone → {tone}\n")
             else:
-                print(f"❌ Tone change failed: {response.text}")
-            
-            self.bot_is_speaking = False
+                print(f"❌ Tone change failed")
             
         except Exception as e:
-            print(f"❌ Tone change error: {e}")
-            self.bot_is_speaking = False
+            print(f"❌ Error: {e}")
     
     def change_personality(self, personality):
         """Change bot personality"""
         try:
-            self.bot_is_speaking = True
-            
             import requests
             response = requests.post(
-                self.server_url.replace('ws://', 'http://').replace(':5001', ':5001') + '/set_personality',
+                self.server_url + '/set_personality',
                 json={'personality': personality},
                 timeout=5
             )
             
             if response.status_code == 200:
-                print(f"✅ Personality changed to: {personality}")
+                print(f"✅ Personality → {personality}\n")
             else:
-                print(f"❌ Personality change failed: {response.text}")
-            
-            self.bot_is_speaking = False
+                print(f"❌ Personality change failed")
             
         except Exception as e:
-            print(f"❌ Personality change error: {e}")
-            self.bot_is_speaking = False
+            print(f"❌ Error: {e}")
     
     def setup_handlers(self):
         """Setup Socket.IO event handlers"""
@@ -270,7 +259,6 @@ class LaptopAudioClient:
         
         # Don't listen if bot is currently speaking
         if self.bot_is_speaking:
-            print("🔇 Bot is speaking, waiting...")
             time.sleep(0.5)
             return
         
@@ -281,7 +269,6 @@ class LaptopAudioClient:
                 print(f"⏱️  Response timeout ({elapsed:.0f}s), resetting...")
                 self.waiting_for_response = False
             else:
-                print("⏳ Waiting for bot response...")
                 time.sleep(0.5)
                 return
         
@@ -339,8 +326,8 @@ class LaptopAudioClient:
         print("  3. Bot will respond and speak back")
         print("  4. After bot finishes, you can speak again")
         print("\n⌨️  Keyboard shortcuts:")
-        print("  SPACEBAR  → Reset conversation (new visitor)")
-        print("  UP ARROW  → Make conversation funnier")
+        print("  SPACEBAR    → Reset conversation (new visitor)")
+        print("  UP ARROW    → Make conversation funnier")
         print("  RIGHT ARROW → Switch to pirate personality")
         print("\nPress Ctrl+C to quit")
         print("="*60 + "\n")
